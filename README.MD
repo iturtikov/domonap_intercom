@@ -27,10 +27,10 @@ data:
   HttpVideoUrl: https://hls.domonap.ru/8452d508564e5a076c8122b6/index.m3u8
   VideoPreview: >-
     https://api.domonap.ru/video-api/preview/Device/8452d508564e5a076c8122b6/qQtfsMiQYS0YuD8LLKrDGbPijncAShubrISKMs7E1cw
-  SipAccount: "1000457231"
-  SipPassword: 8452d508564e5a076c8122b6
-  SipDomain: asterisk-2.domonap.ru
-  SipPort: "7021"
+  SipAccount: *
+  SipPassword: *
+  SipDomain: *
+  SipPort: *
   PushType: Domofon
   photoUrl: https://s3-api.domonap.ru/snapshot/154543486.54786447
 origin: LOCAL
@@ -97,7 +97,8 @@ automation:
             📞📲 Кто-то звонит в домофон
             📌 {{ trigger.event.data.Address }} 
           url: "{{ trigger.event.data.PhotoUrl }}"
-          inline_keyboard: "🔓 Открыть:/open_{{ trigger.event.data.DoorId }}"
+          inline_keyboard:
+            - "🔓 Открыть:/open_{{ trigger.event.data.DoorId }}"
 ```
 ## Ограничения
 Существует ограничение на одновременное использование одного номера телефона в приложении Domonap и интеграции HA. На мобильное устройство с официальным приложением Domonap перестанут приходить push уведомления о входящем звонке в режиме когда приложение не находится на открытом экране. Интеграция в свою очередь это этой проблемы "пролечена" и продолжит принимать уведомления без каких либо проблем.
