@@ -53,6 +53,8 @@ class IntercomFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                         PARAM_ACCESS_TOKEN: self._api.access_token,
                         PARAM_REFRESH_TOKEN: self._api.refresh_token,
                         PARAM_REFRESH_EXPIRATION: self._api.refresh_expiration_date,
+                        CONF_COUNTRY_CODE: self._country_code,
+                        CONF_PHONE_NUMBER: self._phone_number,
                     }
                 )
 

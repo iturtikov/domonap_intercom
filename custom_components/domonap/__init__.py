@@ -27,6 +27,11 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})
+
+    # Register global actions (services).
+    from .actions import async_setup_actions
+
+    await async_setup_actions(hass)
     return True
 
 
@@ -96,4 +101,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
 
+    # If this was the last entry, remove services.
+    if not hass.data.get(DOMAIN):
+        from .actions import async_unload_actions
+
+        await async_unload_actions(hass)
+
     return unloaded
+

@@ -26,6 +26,9 @@
     "button": {
       "open_door": {
         "name": "Open Door"
+      },
+      "open_relay_by_last_call_door_id": {
+        "name": "Open door from last call"
       }
     },
     "binary_sensor": {
@@ -36,17 +39,20 @@
     "sensor": {
       "door_code": {
         "name": "Door Code"
+      },
+      "last_call_door_id": {
+        "name": "Last call Door ID"
       }
     },
     "camera": {
       "camera": {
         "name": "Camera"
-      },
-      "image": {
+      }
+    },
+    "image": {
       "incoming_call_image": {
         "name": "Call photo"
       }
-    }
     }
   }
 }
