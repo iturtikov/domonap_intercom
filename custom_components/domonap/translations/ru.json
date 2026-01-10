@@ -26,6 +26,9 @@
     "button": {
       "open_door": {
         "name": "Открыть дверь"
+      },
+      "open_relay_by_last_call_door_id": {
+        "name": "Открыть дверь с которой произошел последний звонок"
       }
     },
     "binary_sensor": {
@@ -36,6 +39,9 @@
     "sensor": {
       "door_code": {
         "name": "Код двери"
+      },
+      "last_call_door_id": {
+        "name": "Door ID последнего звонка"
       }
     },
     "camera": {
