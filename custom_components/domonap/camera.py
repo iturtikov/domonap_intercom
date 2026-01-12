@@ -19,7 +19,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     for key in keys:
         key_id = key["id"]
         if key["httpVideoUrl"] is not None:
-            entities.append(IntercomCamera(api, key_id, key["name"], key["httpVideoUrl"], key["videoPreview"]))
+            entities.append(IntercomCamera(api, key_id, key["name"], key["httpVideoUrl"], key["videoPreview"], key))
 
     async_add_entities(entities, True)
 
@@ -31,13 +31,19 @@ class IntercomCamera(Camera):
     _attr_motion_detection_enabled = False
     _attr_translation_key = "camera"
 
-    def __init__(self, api, key_id: str, name: str, stream_url: str, snapshot_url: str):
+    def __init__(self, api, key_id: str, name: str, stream_url: str, snapshot_url: str, key_data: dict):
         super().__init__()
         self._api = api
         self._key_id = key_id
         self._name = name
         self._stream_url = stream_url
         self._snapshot_url = snapshot_url
+        self._key_data = key_data
+
+    @property
+    def extra_state_attributes(self):
+        """Return the state attributes."""
+        return self._key_data
 
     @property
     def unique_id(self):

@@ -14,7 +14,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         key_id = key["id"]
         door_id = key["doorId"]
         door_name = key["name"]
-        entities.append(IntercomDoor(api, key_id, door_id, door_name))
+        entities.append(IntercomDoor(api, key_id, door_id, door_name, key))
 
     async_add_entities(entities, True)
 
@@ -24,11 +24,17 @@ class IntercomDoor(ButtonEntity):
     _attr_icon = "mdi:lock"
     _attr_translation_key = "open_door"
 
-    def __init__(self, api, key_id, door_id: str, name: str):
+    def __init__(self, api, key_id, door_id: str, name: str, key_data: dict):
         self._api = api
         self._key_id = key_id
         self._door_id = door_id
         self._name = name
+        self._key_data = key_data
+
+    @property
+    def extra_state_attributes(self):
+        """Return the state attributes."""
+        return self._key_data
 
     @property
     def unique_id(self):

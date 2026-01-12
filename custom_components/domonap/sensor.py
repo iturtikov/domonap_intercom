@@ -40,6 +40,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
                     door_id=door_id,
                     device_name=door_name,
                     pin=pin,
+                    key_data=key,
                 )
             )
         except Exception:
@@ -54,11 +55,12 @@ class DomonapDoorCodeSensor(SensorEntity):
     _attr_translation_key = "door_code"
     _attr_should_poll = False
 
-    def __init__(self, key_id: str, door_id: str, device_name: str, pin: str):
+    def __init__(self, key_id: str, door_id: str, device_name: str, pin: str, key_data: dict):
         self._key_id = key_id
         self._door_id = door_id
         self._device_name = device_name
         self._pin = pin
+        self._key_data = key_data
 
     @property
     def unique_id(self) -> str:
@@ -67,6 +69,11 @@ class DomonapDoorCodeSensor(SensorEntity):
     @property
     def native_value(self) -> str | None:
         return self._pin
+
+    @property
+    def extra_state_attributes(self):
+        """Return the state attributes."""
+        return self._key_data
 
     @property
     def device_info(self):

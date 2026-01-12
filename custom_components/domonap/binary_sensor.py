@@ -20,7 +20,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         door_id = key["doorId"]
         door_name = key["name"]
         if key.get("httpVideoUrl") is not None:
-            entities.append(IntercomCallBinarySensor(hass, api, key_id, door_id, door_name))
+            entities.append(IntercomCallBinarySensor(hass, api, key_id, door_id, door_name, key))
 
     async_add_entities(entities, True)
 
@@ -33,12 +33,13 @@ class IntercomCallBinarySensor(BinarySensorEntity):
     _attr_device_class = "running"
     _attr_translation_key = "incoming_call"
 
-    def __init__(self, hass: HomeAssistant, api, key_id: str, door_id: str, name: str):
+    def __init__(self, hass: HomeAssistant, api, key_id: str, door_id: str, name: str, key_data: dict):
         self._hass = hass
         self._api = api
         self._key_id = key_id
         self._door_id = door_id
         self._name = name
+        self._key_data = key_data
         self._state = False
         self._reset_timer: Optional[Callable[[], None]] = None
         self._listener = None
@@ -51,6 +52,11 @@ class IntercomCallBinarySensor(BinarySensorEntity):
     def is_on(self):
         """Возвращает True если есть входящий звонок."""
         return self._state
+
+    @property
+    def extra_state_attributes(self):
+        """Return the state attributes."""
+        return self._key_data
 
     @property
     def device_info(self):

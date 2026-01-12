@@ -37,6 +37,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
                     door_id=door_id,
                     device_name=door_name,
                     photo_url=photo_url,
+                    key_data=key,
                 )
             )
 
@@ -56,6 +57,7 @@ class IntercomCallImageEntity(ImageEntity):
         door_id: str,
         device_name: str,
         photo_url: Optional[str] = None,
+        key_data: dict = None,
     ):
         super().__init__(hass)
         self._api = api
@@ -63,8 +65,14 @@ class IntercomCallImageEntity(ImageEntity):
         self._door_id = door_id
         self._device_name = device_name
         self._photo_url = photo_url
+        self._key_data = key_data
         self._image_bytes: Optional[bytes] = None
         self._unsub: Optional[Callable[[], None]] = None
+
+    @property
+    def extra_state_attributes(self):
+        """Return the state attributes."""
+        return self._key_data
 
     @property
     def unique_id(self) -> str:
