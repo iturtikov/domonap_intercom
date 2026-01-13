@@ -25,9 +25,9 @@ class IntercomAPI:
         self._updating_device_token: bool = False
         self.refresh_skew = timedelta(seconds=refresh_skew_seconds)
         self.headers: Dict[str, str] = {
-            "Content-Type": "application/json",
-            "dom-app": "mobile",
-            "dom-platform": "blazor",
+            "Content-Type": "application/json; charset=UTF-8",
+            "dom-app": "panel",
+            "dom-platform": "browser",
         }
         self.token_update_callback = None
         self._session: Optional[aiohttp.ClientSession] = None
