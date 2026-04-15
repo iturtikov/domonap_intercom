@@ -99,6 +99,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
+    api = stored.get(API)
+    if api:
+        try:
+            await api.close()
+        except Exception:
+            _LOGGER.debug("Exception while closing API client", exc_info=True)
+
     hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
 
     # If this was the last entry, remove services.
@@ -108,4 +115,3 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await async_unload_actions(hass)
 
     return unloaded
-

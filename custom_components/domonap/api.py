@@ -31,6 +31,7 @@ class IntercomAPI:
         }
         self.token_update_callback = None
         self._session: Optional[aiohttp.ClientSession] = None
+        self._external_session: Optional[aiohttp.ClientSession] = None
         self._closed = False
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
@@ -41,10 +42,20 @@ class IntercomAPI:
             self._session = aiohttp.ClientSession(headers=self.headers, timeout=timeout)
         return self._session
 
+    async def _ensure_external_session(self) -> aiohttp.ClientSession:
+        if self._closed:
+            raise RuntimeError("Client is closed")
+        if not self._external_session or self._external_session.closed:
+            timeout = aiohttp.ClientTimeout(total=30)
+            self._external_session = aiohttp.ClientSession(timeout=timeout)
+        return self._external_session
+
     async def close(self):
         self._closed = True
         if self._session and not self._session.closed:
             await self._session.close()
+        if self._external_session and not self._external_session.closed:
+            await self._external_session.close()
 
     async def __aenter__(self):
         await self._ensure_session()
@@ -257,6 +268,100 @@ class IntercomAPI:
             return res
         _LOGGER.debug("answer_call_notify(%s) -> %s", call_id, res)
         return {"ok": True, "body": res}
+
+    async def fetch_external_bytes(self, url: str) -> Dict[str, Any]:
+        session = await self._ensure_external_session()
+        try:
+            async with session.get(url) as resp:
+                body = await resp.read()
+                if 200 <= resp.status < 300:
+                    return {"ok": True, "status": resp.status, "body": body}
+                return {
+                    "ok": False,
+                    "error": f"HTTP {resp.status}",
+                    "status": resp.status,
+                    "body": body[:2000].decode("utf-8", "replace"),
+                }
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            _LOGGER.error("External GET failed: %s -> %s", url, err)
+            return {"ok": False, "error": str(err), "body": ""}
+
+    async def create_whep_session(self, whep_url: str, offer_sdp: str) -> Dict[str, Any]:
+        session = await self._ensure_external_session()
+        try:
+            async with session.post(
+                whep_url,
+                data=offer_sdp,
+                headers={"Content-Type": "application/sdp"},
+            ) as resp:
+                answer_sdp = await resp.text()
+                if resp.status != 201:
+                    return {
+                        "ok": False,
+                        "error": f"HTTP {resp.status}",
+                        "status": resp.status,
+                        "body": answer_sdp[:2000],
+                    }
+
+                location = resp.headers.get("Location")
+                if not location:
+                    return {
+                        "ok": False,
+                        "error": "WHEP response did not include a session URL",
+                        "status": resp.status,
+                        "body": answer_sdp[:2000],
+                    }
+
+                return {
+                    "ok": True,
+                    "status": resp.status,
+                    "answer_sdp": answer_sdp,
+                    "location": location,
+                }
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            _LOGGER.error("WHEP offer failed: %s -> %s", whep_url, err)
+            return {"ok": False, "error": str(err), "body": ""}
+
+    async def send_whep_candidates(self, session_url: str, sdp_fragment: str) -> Dict[str, Any]:
+        session = await self._ensure_external_session()
+        try:
+            async with session.patch(
+                session_url,
+                data=sdp_fragment,
+                headers={
+                    "Content-Type": "application/trickle-ice-sdpfrag",
+                    "If-Match": "*",
+                },
+            ) as resp:
+                if resp.status in (200, 204):
+                    return {"ok": True, "status": resp.status}
+
+                body = await resp.text()
+                return {
+                    "ok": False,
+                    "error": f"HTTP {resp.status}",
+                    "status": resp.status,
+                    "body": body[:2000],
+                }
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            _LOGGER.error("WHEP candidate failed: %s -> %s", session_url, err)
+            return {"ok": False, "error": str(err), "body": ""}
+
+    async def close_whep_session(self, session_url: str) -> Dict[str, Any]:
+        session = await self._ensure_external_session()
+        try:
+            async with session.delete(session_url) as resp:
+                if resp.status in (200, 204):
+                    return {"ok": True, "status": resp.status}
+                return {
+                    "ok": False,
+                    "error": f"HTTP {resp.status}",
+                    "status": resp.status,
+                    "body": await resp.text(),
+                }
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            _LOGGER.debug("WHEP session close failed: %s -> %s", session_url, err)
+            return {"ok": False, "error": str(err), "body": ""}
 
     async def end_call_notify(self, call_id: str):
         payload = {"callId": call_id}
