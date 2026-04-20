@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
@@ -26,6 +27,12 @@ except ImportError:
 from .const import DOMAIN, API
 
 _LOGGER = logging.getLogger(__name__)
+CAMERA_CATEGORY_NAMES = {
+    "Parking": "Parking",
+    "House": "House",
+    "Entrance": "Entrance",
+    "None": "None",
+}
 
 
 @dataclass(frozen=True)
@@ -48,31 +55,174 @@ class WHEPSession:
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    entities = []
     api = hass.data[DOMAIN][config_entry.entry_id][API]
-    response = await api.get_paged_keys()
-    keys = response.get("results", [])
-    for key in keys:
-        key_id = key["id"]
-        if (
-            key.get("httpVideoUrl") is not None
-            or key.get("webrtcVideoUrl") is not None
-        ):
-            camera_class = (
-                IntercomWebRTCCamera if key.get("webrtcVideoUrl") else IntercomCamera
-            )
-            entities.append(
-                camera_class(
-                    api,
-                    key_id,
-                    key["name"],
-                    key.get("httpVideoUrl"),
-                    key.get("videoPreview"),
-                    key,
-                )
-            )
+    key_response = await api.get_paged_keys()
+    key_entities = _build_key_camera_entities(api, key_response)
+    if key_entities:
+        async_add_entities(key_entities, True)
 
-    async_add_entities(entities, True)
+    video_areas_response = await api.get_video_area()
+    video_entities = await _build_video_camera_entities(api, video_areas_response)
+    if video_entities:
+        async_add_entities(video_entities, True)
+
+
+def _build_key_camera_entities(api, response) -> list[Camera]:
+    if isinstance(response, Exception):
+        _LOGGER.exception("Failed to load Domonap key cameras", exc_info=response)
+        return []
+
+    if not isinstance(response, dict):
+        _LOGGER.warning(
+            "Unexpected Domonap key camera payload: %s", type(response).__name__
+        )
+        return []
+
+    if "error" in response:
+        _log_api_error("Loading Domonap key cameras", response)
+        return []
+
+    entities: list[Camera] = []
+    for key in response.get("results", []):
+        key_id = key.get("id")
+        name = key.get("name")
+        if not key_id or not name:
+            _LOGGER.debug("Skipping invalid key camera payload: %s", key)
+            continue
+
+        if not (key.get("httpVideoUrl") or key.get("webrtcVideoUrl")):
+            continue
+
+        camera_class = (
+            IntercomWebRTCCamera if key.get("webrtcVideoUrl") else IntercomCamera
+        )
+        entities.append(
+            camera_class(
+                api,
+                key_id,
+                name,
+                key.get("httpVideoUrl"),
+                key.get("videoPreview"),
+                key,
+            )
+        )
+
+    return entities
+
+
+async def _build_video_camera_entities(api, response) -> list[Camera]:
+    if isinstance(response, Exception):
+        _LOGGER.exception("Failed to load Domonap video areas", exc_info=response)
+        return []
+
+    if isinstance(response, dict) and "error" in response:
+        _log_api_error("Loading Domonap video areas", response)
+        return []
+
+    if not isinstance(response, list):
+        if response is not None:
+            _LOGGER.warning(
+                "Unexpected Domonap video areas payload: %s", type(response).__name__
+            )
+        return []
+
+    categories: list[str] = []
+    for area in response:
+        if not isinstance(area, dict):
+            continue
+        category = area.get("category")
+        if category and category not in categories:
+            categories.append(category)
+
+    if not categories:
+        return []
+
+    category_responses = await asyncio.gather(
+        *(api.get_user_video_cameras(category) for category in categories),
+        return_exceptions=True,
+    )
+
+    entities: list[Camera] = []
+    seen_unique_ids: set[str] = set()
+
+    for category, category_response in zip(categories, category_responses):
+        if isinstance(category_response, Exception):
+            _LOGGER.exception(
+                "Failed to load Domonap cameras for category %s",
+                category,
+                exc_info=category_response,
+            )
+            continue
+
+        if isinstance(category_response, dict) and "error" in category_response:
+            _log_api_error(
+                f"Loading Domonap cameras for category {category}", category_response
+            )
+            continue
+
+        if not isinstance(category_response, list):
+            _LOGGER.warning(
+                "Unexpected Domonap cameras payload for category %s: %s",
+                category,
+                type(category_response).__name__,
+            )
+            continue
+
+        category_name = CAMERA_CATEGORY_NAMES.get(category, category)
+        for camera in category_response:
+            entity = _make_video_camera_entity(api, camera, category, category_name)
+            if entity is None or entity.unique_id in seen_unique_ids:
+                continue
+
+            seen_unique_ids.add(entity.unique_id)
+            entities.append(entity)
+
+    return entities
+
+
+def _make_video_camera_entity(api, camera: dict, category: str, category_name: str):
+    if not isinstance(camera, dict):
+        return None
+
+    camera_id = camera.get("id")
+    name = camera.get("name")
+    if not camera_id or not name:
+        _LOGGER.debug("Skipping invalid Domonap video camera payload: %s", camera)
+        return None
+
+    if not (camera.get("httpVideoUrl") or camera.get("webrtcVideoUrl")):
+        return None
+
+    entity_unique_id = f"video_camera_{camera_id}"
+    camera_data = dict(camera)
+    camera_data["category"] = category
+    camera_data["categoryName"] = category_name
+    camera_data["source"] = "video_tab"
+
+    camera_class = (
+        IntercomWebRTCCamera if camera.get("webrtcVideoUrl") else IntercomCamera
+    )
+    return camera_class(
+        api,
+        entity_unique_id,
+        name,
+        camera.get("httpVideoUrl"),
+        camera.get("videoPreviewUrl"),
+        camera_data,
+        device_identifier=entity_unique_id,
+        device_name=name,
+        device_model="Video Camera",
+        preserve_via_device=False,
+    )
+
+
+def _log_api_error(context: str, response: dict) -> None:
+    _LOGGER.warning(
+        "%s failed: %s %s",
+        context,
+        response.get("error"),
+        str(response.get("body", ""))[:200],
+    )
 
 
 class IntercomCamera(Camera):
@@ -90,6 +240,12 @@ class IntercomCamera(Camera):
         stream_url: str | None,
         snapshot_url: str | None,
         key_data: dict,
+        *,
+        device_identifier: str | None = None,
+        device_name: str | None = None,
+        device_model: str = "Intercom Device",
+        via_device_identifier: str | None = None,
+        preserve_via_device: bool = True,
     ):
         super().__init__()
         self._api = api
@@ -98,10 +254,16 @@ class IntercomCamera(Camera):
         self._stream_url = stream_url
         self._snapshot_url = snapshot_url
         self._key_data = key_data
+        self._device_identifier = device_identifier or key_id
+        self._device_name = device_name or name
+        self._device_model = device_model
+        if preserve_via_device:
+            self._via_device_identifier = via_device_identifier or key_id
+        else:
+            self._via_device_identifier = None
 
     @property
     def extra_state_attributes(self):
-        """Return the state attributes."""
         return self._key_data
 
     @property
@@ -109,7 +271,7 @@ class IntercomCamera(Camera):
         return self._key_id
 
     async def async_camera_image(self, width=None, height=None):
-        if self._snapshot_url is None:
+        if not self._snapshot_url:
             return None
 
         response = await self._api.fetch_external_bytes(self._snapshot_url)
@@ -125,7 +287,7 @@ class IntercomCamera(Camera):
         return None
 
     async def stream_source(self):
-        return self._stream_url
+        return self._stream_url or None
 
     @property
     def supported_features(self):
@@ -133,21 +295,21 @@ class IntercomCamera(Camera):
 
     @property
     def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, self._key_id)},
-            "name": self._name,
+        info = {
+            "identifiers": {(DOMAIN, self._device_identifier)},
+            "name": self._device_name,
             "manufacturer": "Domonap",
-            "model": "Intercom Device",
-            "via_device": (DOMAIN, self._key_id),
+            "model": self._device_model,
         }
+        if self._via_device_identifier:
+            info["via_device"] = (DOMAIN, self._via_device_identifier)
+        return info
 
     async def async_update(self):
         _LOGGER.debug(f"Updating camera: {self._name}")
 
 
 class IntercomWebRTCCamera(IntercomCamera):
-    """Domonap camera with native WebRTC/WHEP playback support."""
-
     _attr_frontend_stream_type = getattr(StreamType, "WEB_RTC", StreamType.HLS)
 
     def __init__(
@@ -158,8 +320,17 @@ class IntercomWebRTCCamera(IntercomCamera):
         stream_url: str | None,
         snapshot_url: str | None,
         key_data: dict,
+        **kwargs,
     ):
-        super().__init__(api, key_id, name, stream_url, snapshot_url, key_data)
+        super().__init__(
+            api,
+            key_id,
+            name,
+            stream_url,
+            snapshot_url,
+            key_data,
+            **kwargs,
+        )
         self._webrtc_url = key_data["webrtcVideoUrl"]
         self._whep_url = _whep_url_from_webrtc_url(self._webrtc_url)
         self._webrtc_sessions: dict[str, WHEPSession] = {}
@@ -168,7 +339,6 @@ class IntercomWebRTCCamera(IntercomCamera):
     async def async_handle_async_webrtc_offer(
         self, offer_sdp: str, session_id: str, send_message: WebRTCSendMessage
     ) -> None:
-        """Handle a Home Assistant WebRTC offer through Domonap's WHEP endpoint."""
         if WebRTCAnswer is None or WebRTCError is None:
             _LOGGER.error("Home Assistant WebRTC API is not available")
             return
@@ -196,14 +366,12 @@ class IntercomWebRTCCamera(IntercomCamera):
 
     @callback
     def _async_get_webrtc_client_configuration(self):
-        """Return client-side WebRTC options expected by MediaMTX."""
         if WebRTCClientConfiguration is None:
             return super()._async_get_webrtc_client_configuration()
 
         return WebRTCClientConfiguration(data_channel="domonap")
 
     async def async_on_webrtc_candidate(self, session_id: str, candidate) -> None:
-        """Forward a WebRTC ICE candidate to Domonap's WHEP session."""
         if not getattr(candidate, "candidate", None):
             return
 
@@ -215,7 +383,6 @@ class IntercomWebRTCCamera(IntercomCamera):
 
     @callback
     def close_webrtc_session(self, session_id: str) -> None:
-        """Close a Domonap WHEP session."""
         self._pending_candidates.pop(session_id, None)
         whep_session = self._webrtc_sessions.pop(session_id, None)
         if whep_session is None:
@@ -226,7 +393,6 @@ class IntercomWebRTCCamera(IntercomCamera):
         )
 
     async def _async_send_webrtc_candidates(self, session_id: str, candidates) -> None:
-        """Send local ICE candidates to the active WHEP session."""
         whep_session = self._webrtc_sessions.get(session_id)
         if whep_session is None:
             return
@@ -248,7 +414,6 @@ class IntercomWebRTCCamera(IntercomCamera):
             )
 
     async def _async_close_whep_session(self, session_url: str) -> None:
-        """Close the WHEP session on the Domonap side."""
         response = await self._api.close_whep_session(session_url)
         if not response["ok"]:
             _LOGGER.debug(
@@ -259,7 +424,6 @@ class IntercomWebRTCCamera(IntercomCamera):
 
 
 def _parse_offer_sdp(offer_sdp: str) -> WHEPOfferData:
-    """Extract ICE data and media sections needed for WHEP trickle ICE."""
     ice_ufrag = ""
     ice_pwd = ""
     medias: list[WHEPMedia] = []
@@ -278,14 +442,12 @@ def _parse_offer_sdp(offer_sdp: str) -> WHEPOfferData:
 
 
 def _whep_url_from_webrtc_url(webrtc_url: str) -> str:
-    """Return the MediaMTX WHEP endpoint URL for a Domonap WebRTC page URL."""
     parsed = urlsplit(webrtc_url)
     path = parsed.path.rstrip("/") + "/whep"
     return urlunsplit((parsed.scheme, parsed.netloc, path, parsed.query, ""))
 
 
 def _generate_sdp_fragment(offer_data: WHEPOfferData, candidates) -> str | None:
-    """Build the SDP fragment expected by MediaMTX/WHEP for ICE candidates."""
     candidates_by_media = defaultdict(list)
 
     for candidate in candidates:
@@ -321,7 +483,6 @@ def _generate_sdp_fragment(offer_data: WHEPOfferData, candidates) -> str | None:
 
 
 def _candidate_media_index(offer_data: WHEPOfferData, candidate) -> int | None:
-    """Return the media index for a WebRTC candidate."""
     media_index = getattr(candidate, "sdp_m_line_index", None)
     if media_index is not None:
         return media_index

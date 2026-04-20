@@ -243,6 +243,22 @@ class IntercomAPI:
         payload = {"perPage": per_page, "currentPage": current_page, "keysType": keys_type}
         return await self._post("/client-api/Key/GetPagedKeysByKeysType", payload, need_auth=True, expect="json")
 
+    async def get_video_area(self):
+        return await self._post(
+            "/client-api/VideoCamera/GetVideoArea",
+            need_auth=True,
+            expect="json",
+        )
+
+    async def get_user_video_cameras(self, category: str):
+        payload = {"category": category}
+        return await self._post(
+            "/client-api/VideoCamera/GetUserVideoCameras",
+            payload,
+            need_auth=True,
+            expect="json",
+        )
+
     async def get_user_key(self, key_id: str):
         payload = {"keyId": key_id}
         return await self._post("/client-api/Key/GetUserKey", payload, need_auth=True, expect="json")
