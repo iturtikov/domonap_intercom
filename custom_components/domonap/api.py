@@ -302,79 +302,152 @@ class IntercomAPI:
             _LOGGER.error("External GET failed: %s -> %s", url, err)
             return {"ok": False, "error": str(err), "body": ""}
 
+    def _authorized_external_headers(self, headers: Dict[str, str]) -> Dict[str, str]:
+        request_headers = dict(headers)
+        if self.access_token:
+            request_headers["Authorization"] = f"Bearer {self.access_token}"
+        return request_headers
+
+    async def _ensure_external_auth(self) -> Optional[Dict[str, Any]]:
+        if not self.access_token:
+            return {"ok": False, "error": "No access token available", "body": ""}
+        await self._ensure_alive()
+        return None
+
     async def create_whep_session(self, whep_url: str, offer_sdp: str) -> Dict[str, Any]:
+        auth_error = await self._ensure_external_auth()
+        if auth_error:
+            return auth_error
+
         session = await self._ensure_external_session()
-        try:
-            async with session.post(
+
+        def _request():
+            return session.post(
                 whep_url,
                 data=offer_sdp,
-                headers={"Content-Type": "application/sdp"},
-            ) as resp:
-                answer_sdp = await resp.text()
-                if resp.status != 201:
-                    return {
-                        "ok": False,
-                        "error": f"HTTP {resp.status}",
-                        "status": resp.status,
-                        "body": answer_sdp[:2000],
+                headers=self._authorized_external_headers(
+                    {
+                        "Content-Type": "application/sdp",
+                        "Accept": "application/sdp",
                     }
+                ),
+            )
 
-                location = resp.headers.get("Location")
-                if not location:
-                    return {
-                        "ok": False,
-                        "error": "WHEP response did not include a session URL",
-                        "status": resp.status,
-                        "body": answer_sdp[:2000],
-                    }
-
+        async def _handle_response(resp: aiohttp.ClientResponse) -> Dict[str, Any]:
+            answer_sdp = await resp.text()
+            if resp.status != 201:
                 return {
-                    "ok": True,
+                    "ok": False,
+                    "error": f"HTTP {resp.status}",
                     "status": resp.status,
-                    "answer_sdp": answer_sdp,
-                    "location": location,
+                    "body": answer_sdp[:2000],
                 }
+
+            location = resp.headers.get("Location")
+            if not location:
+                return {
+                    "ok": False,
+                    "error": "WHEP response did not include a session URL",
+                    "status": resp.status,
+                    "body": answer_sdp[:2000],
+                }
+
+            return {
+                "ok": True,
+                "status": resp.status,
+                "answer_sdp": answer_sdp,
+                "location": location,
+            }
+
+        try:
+            async with _request() as resp:
+                if resp.status == 401 and self.refresh_token:
+                    _LOGGER.warning("401 Unauthorized, refreshing token and retrying WHEP offer %s", whep_url)
+                    await self.update_token()
+                    async with _request() as retry_resp:
+                        return await _handle_response(retry_resp)
+
+                return await _handle_response(resp)
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             _LOGGER.error("WHEP offer failed: %s -> %s", whep_url, err)
             return {"ok": False, "error": str(err), "body": ""}
 
     async def send_whep_candidates(self, session_url: str, sdp_fragment: str) -> Dict[str, Any]:
+        auth_error = await self._ensure_external_auth()
+        if auth_error:
+            return auth_error
+
         session = await self._ensure_external_session()
-        try:
-            async with session.patch(
+
+        def _request():
+            return session.patch(
                 session_url,
                 data=sdp_fragment,
-                headers={
-                    "Content-Type": "application/trickle-ice-sdpfrag",
-                    "If-Match": "*",
-                },
-            ) as resp:
-                if resp.status in (200, 204):
-                    return {"ok": True, "status": resp.status}
+                headers=self._authorized_external_headers(
+                    {
+                        "Content-Type": "application/trickle-ice-sdpfrag",
+                        "If-Match": "*",
+                    }
+                ),
+            )
 
-                body = await resp.text()
-                return {
-                    "ok": False,
-                    "error": f"HTTP {resp.status}",
-                    "status": resp.status,
-                    "body": body[:2000],
-                }
+        async def _handle_response(resp: aiohttp.ClientResponse) -> Dict[str, Any]:
+            if resp.status in (200, 204):
+                return {"ok": True, "status": resp.status}
+
+            body = await resp.text()
+            return {
+                "ok": False,
+                "error": f"HTTP {resp.status}",
+                "status": resp.status,
+                "body": body[:2000],
+            }
+
+        try:
+            async with _request() as resp:
+                if resp.status == 401 and self.refresh_token:
+                    _LOGGER.warning("401 Unauthorized, refreshing token and retrying WHEP candidate %s", session_url)
+                    await self.update_token()
+                    async with _request() as retry_resp:
+                        return await _handle_response(retry_resp)
+
+                return await _handle_response(resp)
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             _LOGGER.error("WHEP candidate failed: %s -> %s", session_url, err)
             return {"ok": False, "error": str(err), "body": ""}
 
     async def close_whep_session(self, session_url: str) -> Dict[str, Any]:
+        auth_error = await self._ensure_external_auth()
+        if auth_error:
+            return auth_error
+
         session = await self._ensure_external_session()
+
+        def _request():
+            return session.delete(
+                session_url,
+                headers=self._authorized_external_headers({}),
+            )
+
+        async def _handle_response(resp: aiohttp.ClientResponse) -> Dict[str, Any]:
+            if resp.status in (200, 204):
+                return {"ok": True, "status": resp.status}
+            return {
+                "ok": False,
+                "error": f"HTTP {resp.status}",
+                "status": resp.status,
+                "body": await resp.text(),
+            }
+
         try:
-            async with session.delete(session_url) as resp:
-                if resp.status in (200, 204):
-                    return {"ok": True, "status": resp.status}
-                return {
-                    "ok": False,
-                    "error": f"HTTP {resp.status}",
-                    "status": resp.status,
-                    "body": await resp.text(),
-                }
+            async with _request() as resp:
+                if resp.status == 401 and self.refresh_token:
+                    _LOGGER.warning("401 Unauthorized, refreshing token and retrying WHEP close %s", session_url)
+                    await self.update_token()
+                    async with _request() as retry_resp:
+                        return await _handle_response(retry_resp)
+
+                return await _handle_response(resp)
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             _LOGGER.debug("WHEP session close failed: %s -> %s", session_url, err)
             return {"ok": False, "error": str(err), "body": ""}

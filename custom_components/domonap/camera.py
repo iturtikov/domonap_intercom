@@ -66,6 +66,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     if video_entities:
         async_add_entities(video_entities, True)
 
+    return True
+
 
 def _build_key_camera_entities(api, response) -> list[Camera]:
     if isinstance(response, Exception):
