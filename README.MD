@@ -8,9 +8,27 @@
 
 * Открытие дверей  
 * Загрузка видеопотока  
+* Локальный WebRTC/WHEP proxy для `go2rtc` без авторизации Domonap  
 * Уведомления о звонках в виде бинарного сенсора  
 * Уведомления о входящих сообщениях в чате 
 * События в фоновом процессе для использования в автоматизациях  
+
+## WebRTC proxy для go2rtc
+
+Интеграция поднимает локальный WHEP proxy в Home Assistant. Он сам обновляет токен и проксирует WebRTC-сессию в Domonap, поэтому `go2rtc` может подключаться к HA URL без авторизации в Domonap.
+
+У WebRTC-камеры появляются атрибуты:
+* `go2rtc_webrtc_path` - относительный путь proxy внутри Home Assistant
+* `go2rtc_webrtc_url` - полный URL для подключения, если в HA настроен внутренний или внешний URL
+
+Пример `go2rtc`:
+```yaml
+streams:
+  domonap_entrance:
+    - webrtc:http://HOME_ASSISTANT:8123/api/domonap/webrtc_proxy/<secret>/<camera_id>/whep
+```
+
+Практически удобнее брать готовое значение из атрибута `go2rtc_webrtc_url` у сущности камеры и вставлять его в конфиг `go2rtc`.
 
 ## Автоматизации
 

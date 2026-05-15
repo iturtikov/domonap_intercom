@@ -2,7 +2,7 @@ import asyncio
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from homeassistant.components.camera import (
     Camera,
@@ -24,7 +24,8 @@ except ImportError:
     WebRTCError = None
     WebRTCSendMessage = None
 
-from .const import DOMAIN, API
+from .const import API, DOMAIN, PARAM_WEBRTC_PROXY_SECRET, WEBRTC_PROXY
+from .webrtc_proxy import _resolve_upstream_session_url
 
 _LOGGER = logging.getLogger(__name__)
 CAMERA_CATEGORY_NAMES = {
@@ -56,20 +57,27 @@ class WHEPSession:
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     api = hass.data[DOMAIN][config_entry.entry_id][API]
+    proxy = hass.data[DOMAIN][WEBRTC_PROXY]
+    proxy_secret = config_entry.data.get(PARAM_WEBRTC_PROXY_SECRET)
     key_response = await api.get_paged_keys()
-    key_entities = _build_key_camera_entities(api, key_response)
+    key_entities = _build_key_camera_entities(api, proxy, proxy_secret, key_response)
     if key_entities:
         async_add_entities(key_entities, True)
 
     video_areas_response = await api.get_video_area()
-    video_entities = await _build_video_camera_entities(api, video_areas_response)
+    video_entities = await _build_video_camera_entities(
+        api,
+        proxy,
+        proxy_secret,
+        video_areas_response,
+    )
     if video_entities:
         async_add_entities(video_entities, True)
 
     return True
 
 
-def _build_key_camera_entities(api, response) -> list[Camera]:
+def _build_key_camera_entities(api, proxy, proxy_secret: str | None, response) -> list[Camera]:
     if isinstance(response, Exception):
         _LOGGER.exception("Failed to load Domonap key cameras", exc_info=response)
         return []
@@ -106,13 +114,15 @@ def _build_key_camera_entities(api, response) -> list[Camera]:
                 key.get("httpVideoUrl"),
                 key.get("videoPreview"),
                 key,
+                proxy=proxy,
+                proxy_secret=proxy_secret,
             )
         )
 
     return entities
 
 
-async def _build_video_camera_entities(api, response) -> list[Camera]:
+async def _build_video_camera_entities(api, proxy, proxy_secret: str | None, response) -> list[Camera]:
     if isinstance(response, Exception):
         _LOGGER.exception("Failed to load Domonap video areas", exc_info=response)
         return []
@@ -172,7 +182,14 @@ async def _build_video_camera_entities(api, response) -> list[Camera]:
 
         category_name = CAMERA_CATEGORY_NAMES.get(category, category)
         for camera in category_response:
-            entity = _make_video_camera_entity(api, camera, category, category_name)
+            entity = _make_video_camera_entity(
+                api,
+                proxy,
+                proxy_secret,
+                camera,
+                category,
+                category_name,
+            )
             if entity is None or entity.unique_id in seen_unique_ids:
                 continue
 
@@ -182,7 +199,14 @@ async def _build_video_camera_entities(api, response) -> list[Camera]:
     return entities
 
 
-def _make_video_camera_entity(api, camera: dict, category: str, category_name: str):
+def _make_video_camera_entity(
+    api,
+    proxy,
+    proxy_secret: str | None,
+    camera: dict,
+    category: str,
+    category_name: str,
+):
     if not isinstance(camera, dict):
         return None
 
@@ -211,6 +235,8 @@ def _make_video_camera_entity(api, camera: dict, category: str, category_name: s
         camera.get("httpVideoUrl"),
         camera.get("videoPreviewUrl"),
         camera_data,
+        proxy=proxy,
+        proxy_secret=proxy_secret,
         device_identifier=entity_unique_id,
         device_name=name,
         device_model="Video Camera",
@@ -242,6 +268,8 @@ class IntercomCamera(Camera):
         stream_url: str | None,
         snapshot_url: str | None,
         key_data: dict,
+        proxy=None,
+        proxy_secret: str | None = None,
         *,
         device_identifier: str | None = None,
         device_name: str | None = None,
@@ -256,6 +284,10 @@ class IntercomCamera(Camera):
         self._stream_url = stream_url
         self._snapshot_url = snapshot_url
         self._key_data = key_data
+        self._proxy = proxy
+        self._proxy_secret = proxy_secret
+        self._proxy_stream_path: str | None = None
+        self._proxy_stream_url: str | None = None
         self._device_identifier = device_identifier or key_id
         self._device_name = device_name or name
         self._device_model = device_model
@@ -266,7 +298,12 @@ class IntercomCamera(Camera):
 
     @property
     def extra_state_attributes(self):
-        return self._key_data
+        attributes = dict(self._key_data)
+        if self._proxy_stream_path:
+            attributes["go2rtc_webrtc_path"] = self._proxy_stream_path
+        if self._proxy_stream_url:
+            attributes["go2rtc_webrtc_url"] = self._proxy_stream_url
+        return attributes
 
     @property
     def unique_id(self):
@@ -337,6 +374,17 @@ class IntercomWebRTCCamera(IntercomCamera):
         self._whep_url = _whep_url_from_webrtc_url(self._webrtc_url)
         self._webrtc_sessions: dict[str, WHEPSession] = {}
         self._pending_candidates = defaultdict(list)
+        if self._proxy and self._proxy_secret:
+            self._proxy_stream_path = self._proxy.register_camera(
+                self._proxy_secret,
+                self.unique_id,
+                self._api,
+                self._whep_url,
+            )
+            self._proxy_stream_url = self._proxy.get_proxy_url(
+                self._proxy_secret,
+                self.unique_id,
+            )
 
     async def async_handle_async_webrtc_offer(
         self, offer_sdp: str, session_id: str, send_message: WebRTCSendMessage
@@ -357,7 +405,10 @@ class IntercomWebRTCCamera(IntercomCamera):
             return
 
         self._webrtc_sessions[session_id] = WHEPSession(
-            session_url=urljoin(self._whep_url, response["location"]),
+            session_url=_resolve_upstream_session_url(
+                self._whep_url,
+                response["location"],
+            ),
             offer_data=offer_data,
         )
         send_message(WebRTCAnswer(response["answer_sdp"]))
@@ -393,6 +444,11 @@ class IntercomWebRTCCamera(IntercomCamera):
         self.hass.async_create_task(
             self._async_close_whep_session(whep_session.session_url)
         )
+
+    async def async_will_remove_from_hass(self) -> None:
+        await super().async_will_remove_from_hass()
+        if self._proxy and self._proxy_secret:
+            self._proxy.unregister_camera(self._proxy_secret, self.unique_id)
 
     async def _async_send_webrtc_candidates(self, session_id: str, candidates) -> None:
         whep_session = self._webrtc_sessions.get(session_id)

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import asyncio
 import logging
-from datetime import timedelta, datetime
+from datetime import datetime
+from secrets import token_urlsafe
 from typing import TYPE_CHECKING
 
 from homeassistant.core import HomeAssistant
@@ -15,8 +15,10 @@ from .const import (
     PARAM_ACCESS_TOKEN,
     PARAM_REFRESH_TOKEN,
     PARAM_REFRESH_EXPIRATION,
+    PARAM_WEBRTC_PROXY_SECRET,
     PLATFORMS,
     UPDATE_INTERVAL,
+    WEBRTC_PROXY,
 )
 
 if TYPE_CHECKING:
@@ -30,8 +32,13 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
     # Register global actions (services).
     from .actions import async_setup_actions
+    from .webrtc_proxy import DomonapWebRTCProxy, DomonapWebRTCProxySessionView, DomonapWebRTCProxyView
 
     await async_setup_actions(hass)
+    proxy = DomonapWebRTCProxy(hass)
+    hass.data[DOMAIN][WEBRTC_PROXY] = proxy
+    hass.http.register_view(DomonapWebRTCProxyView(proxy))
+    hass.http.register_view(DomonapWebRTCProxySessionView(proxy))
     return True
 
 
@@ -40,6 +47,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .notify_consumer import IntercomNotifyConsumer
 
     hass.data[DOMAIN].setdefault(entry.entry_id, {})
+    if not entry.data.get(PARAM_WEBRTC_PROXY_SECRET):
+        new_data = dict(entry.data)
+        new_data[PARAM_WEBRTC_PROXY_SECRET] = token_urlsafe(24)
+        hass.config_entries.async_update_entry(entry, data=new_data)
 
     api = IntercomAPI()
     api.set_tokens(
@@ -109,7 +120,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
 
     # If this was the last entry, remove services.
-    if not hass.data.get(DOMAIN):
+    remaining_entries = [
+        key for key in hass.data.get(DOMAIN, {}) if key != WEBRTC_PROXY
+    ]
+    if not remaining_entries:
         from .actions import async_unload_actions
 
         await async_unload_actions(hass)

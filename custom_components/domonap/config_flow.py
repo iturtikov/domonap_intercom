@@ -1,8 +1,10 @@
 from homeassistant import config_entries
 import voluptuous as vol
 import re
+from secrets import token_urlsafe
+
 from .const import DOMAIN, CONF_COUNTRY_CODE, CONF_PHONE_NUMBER, CONF_CONFIRM_CODE, PARAM_REFRESH_EXPIRATION, \
-    PARAM_REFRESH_TOKEN, PARAM_ACCESS_TOKEN
+    PARAM_REFRESH_TOKEN, PARAM_ACCESS_TOKEN, PARAM_WEBRTC_PROXY_SECRET
 from .api import IntercomAPI
 
 
@@ -53,6 +55,7 @@ class IntercomFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                         PARAM_ACCESS_TOKEN: self._api.access_token,
                         PARAM_REFRESH_TOKEN: self._api.refresh_token,
                         PARAM_REFRESH_EXPIRATION: self._api.refresh_expiration_date,
+                        PARAM_WEBRTC_PROXY_SECRET: token_urlsafe(24),
                         CONF_COUNTRY_CODE: self._country_code,
                         CONF_PHONE_NUMBER: self._phone_number,
                     }
