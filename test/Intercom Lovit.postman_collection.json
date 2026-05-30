@@ -25,24 +25,30 @@
 				"header": [
 					{
 						"key": "Content-Type",
-						"value": "application/json",
+						"value": "application/json; charset=UTF-8",
+						"type": "text"
+					},
+					{
+						"key": "User-Agent",
+						"value": "okhttp/5.3.2",
 						"type": "text"
 					},
 					{
 						"key": "dom-app",
-						"value": "client",
+						"value": "mobile;",
 						"type": "text"
 					},
 					{
 						"key": "dom-platform",
-						"value": "blazor",
+						"value": "Android;",
+						"type": "text"
+					},
+					{
+						"key": "instanceId",
+						"value": "{{instanceId}};",
 						"type": "text"
 					}
 				],
-				"body": {
-					"mode": "raw",
-					"raw": "{\n  \"phoneNumber\": {\n    \"countryCode\": 7,\n    \"number\": {{phoneNumber}}\n  }\n}"
-				},
 				"url": {
 					"raw": "https://api.domonap.ru/sso-api/Authorization/Authorize",
 					"protocol": "https",
@@ -56,6 +62,10 @@
 						"Authorization",
 						"Authorize"
 					]
+				},
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"phoneNumber\": {\n    \"countryCode\": 7,\n    \"number\": {{phoneNumber}}\n  }\n}"
 				}
 			},
 			"response": []
@@ -69,9 +79,9 @@
 						"exec": [
 							"let responseData = pm.response.json();",
 							"",
-							"pm.globals.set(\"accessToken\", \"Bearer \" + responseData.completeToken.accessToken);",
-							"pm.globals.set(\"refreshToken\", responseData.completeToken.refreshToken);",
-							"pm.globals.set(\"refreshExpirationDate\", responseData.completeToken.refreshExpirationDate);"
+							"pm.collectionVariables.set(\"accessToken\", \"Bearer \" + responseData.completeToken.accessToken);",
+							"pm.collectionVariables.set(\"refreshToken\", responseData.completeToken.refreshToken);",
+							"pm.collectionVariables.set(\"refreshExpirationDate\", responseData.completeToken.refreshExpirationDate);"
 						],
 						"type": "text/javascript",
 						"packages": {}
@@ -82,30 +92,31 @@
 				"method": "POST",
 				"header": [
 					{
-						"key": "authorization",
-						"value": "{{accessToken}}",
+						"key": "Content-Type",
+						"value": "application/json; charset=UTF-8",
 						"type": "text"
 					},
 					{
-						"key": "Content-Type",
-						"value": "application/json",
+						"key": "User-Agent",
+						"value": "okhttp/5.3.2",
 						"type": "text"
 					},
 					{
 						"key": "dom-app",
-						"value": "client",
+						"value": "mobile;",
 						"type": "text"
 					},
 					{
 						"key": "dom-platform",
-						"value": "blazor",
+						"value": "Android;",
+						"type": "text"
+					},
+					{
+						"key": "instanceId",
+						"value": "{{instanceId}};",
 						"type": "text"
 					}
 				],
-				"body": {
-					"mode": "raw",
-					"raw": "{\n  \"phoneNumber\": {\n    \"countryCode\": 7,\n    \"number\": {{phoneNumber}}\n  },\n  \"confirmCode\": \"{{confirmCode}}\",\n  \"deviceToken\": \"home-assistant\"\n}"
-				},
 				"url": {
 					"raw": "https://api.domonap.ru/sso-api/Authorization/ConfirmAuthorization",
 					"protocol": "https",
@@ -119,6 +130,10 @@
 						"Authorization",
 						"ConfirmAuthorization"
 					]
+				},
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"phoneNumber\": {\n    \"countryCode\": 7,\n    \"number\": {{phoneNumber}}\n  },\n  \"confirmCode\": \"{{confirmCode}}\",\n  \"deviceToken\": \"{{deviceToken}}\"\n}"
 				}
 			},
 			"response": []
@@ -145,30 +160,31 @@
 				"method": "POST",
 				"header": [
 					{
-						"key": "authorization",
-						"value": "{{accessToken}}",
+						"key": "Content-Type",
+						"value": "application/json; charset=UTF-8",
 						"type": "text"
 					},
 					{
-						"key": "Content-Type",
-						"value": "application/json",
+						"key": "User-Agent",
+						"value": "okhttp/5.3.2",
 						"type": "text"
 					},
 					{
 						"key": "dom-app",
-						"value": "client",
+						"value": "mobile;",
 						"type": "text"
 					},
 					{
 						"key": "dom-platform",
-						"value": "blazor",
+						"value": "Android;",
+						"type": "text"
+					},
+					{
+						"key": "instanceId",
+						"value": "{{instanceId}};",
 						"type": "text"
 					}
 				],
-				"body": {
-					"mode": "raw",
-					"raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
-				},
 				"url": {
 					"raw": "https://api.domonap.ru/sso-api/Authorization/RefreshToken",
 					"protocol": "https",
@@ -182,9 +198,82 @@
 						"Authorization",
 						"RefreshToken"
 					]
+				},
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
 				}
 			},
 			"response": []
+		},
+		{
+			"name": "UpdateDeviceToken",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							""
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"response": [],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "{{accessToken}}",
+						"type": "text"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json; charset=UTF-8",
+						"type": "text"
+					},
+					{
+						"key": "User-Agent",
+						"value": "okhttp/5.3.2",
+						"type": "text"
+					},
+					{
+						"key": "dom-app",
+						"value": "mobile;",
+						"type": "text"
+					},
+					{
+						"key": "dom-platform",
+						"value": "Android;",
+						"type": "text"
+					},
+					{
+						"key": "instanceId",
+						"value": "{{instanceId}};",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://api.domonap.ru/sso-api/Authorization/UpdateDeviceToken",
+					"protocol": "https",
+					"host": [
+						"api",
+						"domonap",
+						"ru"
+					],
+					"path": [
+						"sso-api",
+						"Authorization",
+						"UpdateDeviceToken"
+					]
+				},
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"deviceToken\": \"{{deviceToken}}\",\n  \"platform\": \"Android\"\n}"
+				}
+			}
 		},
 		{
 			"name": "GetUser",
@@ -204,30 +293,31 @@
 				"method": "POST",
 				"header": [
 					{
-						"key": "authorization",
+						"key": "Authorization",
 						"value": "{{accessToken}}",
 						"type": "text"
 					},
 					{
-						"key": "Content-Type",
-						"value": "application/json",
+						"key": "User-Agent",
+						"value": "okhttp/5.3.2",
 						"type": "text"
 					},
 					{
 						"key": "dom-app",
-						"value": "client",
+						"value": "mobile;",
 						"type": "text"
 					},
 					{
 						"key": "dom-platform",
-						"value": "blazor",
+						"value": "Android;",
+						"type": "text"
+					},
+					{
+						"key": "instanceId",
+						"value": "{{instanceId}};",
 						"type": "text"
 					}
 				],
-				"body": {
-					"mode": "urlencoded",
-					"urlencoded": []
-				},
 				"url": {
 					"raw": "https://api.domonap.ru/sso-api/User/GetUser",
 					"protocol": "https",
@@ -263,30 +353,36 @@
 				"method": "POST",
 				"header": [
 					{
-						"key": "authorization",
+						"key": "Authorization",
 						"value": "{{accessToken}}",
 						"type": "text"
 					},
 					{
 						"key": "Content-Type",
-						"value": "application/json",
+						"value": "application/json; charset=UTF-8",
 						"type": "text"
 					},
 					{
-						"key": "client",
-						"value": "client",
+						"key": "User-Agent",
+						"value": "okhttp/5.3.2",
+						"type": "text"
+					},
+					{
+						"key": "dom-app",
+						"value": "mobile;",
 						"type": "text"
 					},
 					{
 						"key": "dom-platform",
-						"value": "blazor",
+						"value": "Android;",
+						"type": "text"
+					},
+					{
+						"key": "instanceId",
+						"value": "{{instanceId}};",
 						"type": "text"
 					}
 				],
-				"body": {
-					"mode": "raw",
-					"raw": "{\n  \"PerPage\": 100,\n  \"CurrentPage\": 1\n}\n\n\n"
-				},
 				"url": {
 					"raw": "https://api.domonap.ru/client-api/Key/GetPagedKeysByKeysType",
 					"protocol": "https",
@@ -300,6 +396,10 @@
 						"Key",
 						"GetPagedKeysByKeysType"
 					]
+				},
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"currentPage\": 1,\n  \"perPage\": 100,\n  \"keysType\": \"Main\",\n  \"search\": null\n}"
 				}
 			},
 			"response": []
@@ -322,22 +422,38 @@
 				"method": "POST",
 				"header": [
 					{
-						"key": "authorization",
+						"key": "Authorization",
 						"value": "{{accessToken}}",
 						"type": "text"
 					},
 					{
 						"key": "Content-Type",
-						"value": "application/json",
+						"value": "application/json; charset=UTF-8",
+						"type": "text"
+					},
+					{
+						"key": "User-Agent",
+						"value": "okhttp/5.3.2",
+						"type": "text"
+					},
+					{
+						"key": "dom-app",
+						"value": "mobile;",
+						"type": "text"
+					},
+					{
+						"key": "dom-platform",
+						"value": "Android;",
+						"type": "text"
+					},
+					{
+						"key": "instanceId",
+						"value": "{{instanceId}};",
 						"type": "text"
 					}
 				],
-				"body": {
-					"mode": "raw",
-					"raw": "{\n  \"keyId\": \"66ab67682474b7b320936dc9\"\n}"
-				},
 				"url": {
-					"raw": "https://api.domonap.ru/client-api/Key/GetUserKey?dom-app=client&dom-platform=blazor",
+					"raw": "https://api.domonap.ru/client-api/Key/GetUserKey",
 					"protocol": "https",
 					"host": [
 						"api",
@@ -348,17 +464,11 @@
 						"client-api",
 						"Key",
 						"GetUserKey"
-					],
-					"query": [
-						{
-							"key": "dom-app",
-							"value": "client"
-						},
-						{
-							"key": "dom-platform",
-							"value": "blazor"
-						}
 					]
+				},
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"keyId\": \"{{keyId}}\"\n}"
 				}
 			},
 			"response": []
@@ -381,30 +491,36 @@
 				"method": "POST",
 				"header": [
 					{
-						"key": "authorization",
+						"key": "Authorization",
 						"value": "{{accessToken}}",
 						"type": "text"
 					},
 					{
 						"key": "Content-Type",
-						"value": "application/json",
+						"value": "application/json; charset=UTF-8",
+						"type": "text"
+					},
+					{
+						"key": "User-Agent",
+						"value": "okhttp/5.3.2",
 						"type": "text"
 					},
 					{
 						"key": "dom-app",
-						"value": "client",
+						"value": "mobile;",
 						"type": "text"
 					},
 					{
 						"key": "dom-platform",
-						"value": "blazor",
+						"value": "Android;",
+						"type": "text"
+					},
+					{
+						"key": "instanceId",
+						"value": "{{instanceId}};",
 						"type": "text"
 					}
 				],
-				"body": {
-					"mode": "raw",
-					"raw": "{\n  \"keyId\": \"{{keyId}}\"\n}"
-				},
 				"url": {
 					"raw": "https://api.domonap.ru/client-api/Device/OpenRelayByKeyId",
 					"protocol": "https",
@@ -418,6 +534,10 @@
 						"Device",
 						"OpenRelayByKeyId"
 					]
+				},
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"keyId\": \"{{keyId}}\"\n}"
 				}
 			},
 			"response": []
@@ -429,7 +549,16 @@
 			"script": {
 				"type": "text/javascript",
 				"exec": [
-					""
+					"const guid = () => pm.variables.replaceIn(\"{{$guid}}\");",
+					"const compactGuid = () => guid().replace(/-/g, \"\");",
+					"",
+					"if (!pm.collectionVariables.get(\"instanceId\")) {",
+					"  pm.collectionVariables.set(\"instanceId\", guid());",
+					"}",
+					"",
+					"if (!pm.collectionVariables.get(\"deviceToken\")) {",
+					"  pm.collectionVariables.set(\"deviceToken\", `${compactGuid().slice(0, 22)}:APA91b${compactGuid()}${compactGuid()}${compactGuid()}${compactGuid()}`);",
+					"}"
 				]
 			}
 		},
@@ -471,6 +600,16 @@
 		},
 		{
 			"key": "keyId",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "deviceToken",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "instanceId",
 			"value": "",
 			"type": "string"
 		}

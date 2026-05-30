@@ -2,16 +2,35 @@ import logging
 import aiohttp
 import asyncio
 from datetime import datetime, timezone, timedelta
+from secrets import token_urlsafe
 from typing import Any, Dict, Optional, Union
+from uuid import uuid4
 
 _LOGGER = logging.getLogger(__name__)
+
+
+DEFAULT_DEVICE_PLATFORM = "Android"
+DEFAULT_DOM_APP = "mobile"
+DEFAULT_JSON_CONTENT_TYPE = "application/json; charset=UTF-8"
+DEFAULT_USER_AGENT = "okhttp/5.3.2"
+
+
+def _with_app_header_suffix(value: str) -> str:
+    return value if value.endswith(";") else f"{value};"
+
+
+def _generate_device_token() -> str:
+    return f"{token_urlsafe(22)}:APA91b{token_urlsafe(134)}"
 
 
 class IntercomAPI:
     def __init__(
         self,
         base_url: str = "https://api.domonap.ru",
-        device_token: str = "home-assistant",
+        device_token: Optional[str] = None,
+        instance_id: Optional[str] = None,
+        device_platform: str = DEFAULT_DEVICE_PLATFORM,
+        dom_app: str = DEFAULT_DOM_APP,
         device_token_check_interval: int = 300,
         refresh_skew_seconds: int = 60,
     ):
@@ -19,15 +38,19 @@ class IntercomAPI:
         self.access_token: Optional[str] = None
         self.refresh_token: Optional[str] = None
         self.refresh_expiration_date: Optional[str] = None
-        self.device_token = device_token
+        self.device_token = device_token or _generate_device_token()
+        self.instance_id = instance_id or str(uuid4())
+        self.device_platform = device_platform
+        self.dom_app = dom_app
         self.device_token_check_interval = device_token_check_interval
         self._last_device_token_check: Optional[datetime] = None
         self._updating_device_token: bool = False
         self.refresh_skew = timedelta(seconds=refresh_skew_seconds)
         self.headers: Dict[str, str] = {
-            "Content-Type": "application/json; charset=UTF-8",
-            "dom-app": "panel",
-            "dom-platform": "browser",
+            "User-Agent": DEFAULT_USER_AGENT,
+            "dom-app": _with_app_header_suffix(self.dom_app),
+            "dom-platform": _with_app_header_suffix(self.device_platform),
+            "instanceId": _with_app_header_suffix(self.instance_id),
         }
         self.token_update_callback = None
         self._session: Optional[aiohttp.ClientSession] = None
@@ -68,8 +91,9 @@ class IntercomAPI:
         self.access_token = access_token
         self.refresh_token = refresh_token
         self.refresh_expiration_date = refresh_expiration_date
-        self.headers["Authorization"] = f"Bearer {self.access_token}"
+        self.headers.pop("Authorization", None)
         if self._session and not self._session.closed:
+            self._session._default_headers.clear()
             self._session._default_headers.update(self.headers)
 
     def _parse_dt(self, val: str) -> Optional[datetime]:
@@ -123,19 +147,31 @@ class IntercomAPI:
         payload: Optional[Dict[str, Any]] = None,
         *,
         need_auth: bool = False,
+        ensure_alive: bool = True,
+        send_auth: Optional[bool] = None,
         expect: str = "json",
         retry_on_401: bool = True,
     ) -> Union[Dict[str, Any], str]:
+        if send_auth is None:
+            send_auth = need_auth
         if need_auth:
             if not self.access_token:
                 return {"error": "No access token available", "ok": False, "body": ""}
-            await self._ensure_alive()
+            if ensure_alive:
+                await self._ensure_alive()
 
         session = await self._ensure_session()
         url = f"{self.base_url}{path}"
 
         async def _do() -> aiohttp.ClientResponse:
-            return await session.post(url, json=payload, ssl=False)
+            headers = dict(self.headers)
+            if payload is not None:
+                headers["Content-Type"] = DEFAULT_JSON_CONTENT_TYPE
+            if send_auth and self.access_token:
+                headers["Authorization"] = f"Bearer {self.access_token}"
+            if payload is None:
+                return await session.post(url, headers=headers, ssl=False)
+            return await session.post(url, json=payload, headers=headers, ssl=False)
 
         resp = await _do()
         if resp.status == 401 and retry_on_401 and self.refresh_token:
@@ -161,19 +197,21 @@ class IntercomAPI:
         _LOGGER.debug("UpdateDeviceToken start")
         result = await self._post(
             "/sso-api/Authorization/UpdateDeviceToken",
-            {"deviceToken": device_token},
-            need_auth=False,
+            {"deviceToken": device_token, "platform": self.device_platform},
+            need_auth=True,
+            ensure_alive=False,
             expect="text",
             retry_on_401=True,
         )
         if isinstance(result, dict) and "error" in result:
             _LOGGER.error("UpdateDeviceToken failed: %s", result)
             return False
+        self._last_device_token_check = self._now_utc()
         _LOGGER.debug("UpdateDeviceToken ok")
         return True
 
     async def authorize(self, country_code: str, phone_number: str) -> Union[bool, Dict[str, Any]]:
-        payload = {"phoneNumber": {"countryCode": country_code, "number": phone_number}}
+        payload = {"phoneNumber": self._phone_number(country_code, phone_number)}
         res = await self._post("/sso-api/Authorization/Authorize", payload, expect="text", need_auth=False)
         if isinstance(res, dict) and "error" in res:
             return {"error": f"Authorization failed: {res}"}
@@ -187,7 +225,7 @@ class IntercomAPI:
         device_token: Optional[str] = None,
     ) -> Dict[str, Any]:
         payload = {
-            "phoneNumber": {"countryCode": country_code, "number": phone_number},
+            "phoneNumber": self._phone_number(country_code, phone_number),
             "confirmCode": confirm_code,
             "deviceToken": device_token or self.device_token,
         }
@@ -199,9 +237,13 @@ class IntercomAPI:
             self.set_tokens(ct["accessToken"], ct["refreshToken"], ct["refreshExpirationDate"])
             if self.token_update_callback:
                 self.token_update_callback(ct["accessToken"], ct["refreshToken"], ct["refreshExpirationDate"])
+            await self.update_device_token(device_token or self.device_token)
         except Exception as e:
             _LOGGER.exception("Unexpected response on confirm_authorization: %s", e)
         return res
+
+    def _phone_number(self, country_code: str, phone_number: str) -> Dict[str, int]:
+        return {"countryCode": int(country_code), "number": int(phone_number)}
 
     async def update_token(self) -> Dict[str, Any]:
         if not self.refresh_token:
@@ -240,7 +282,12 @@ class IntercomAPI:
             return user.get("userProfile").get("username")
 
     async def get_paged_keys(self, per_page: int = 100, current_page: int = 1, keys_type: str = "Main"):
-        payload = {"perPage": per_page, "currentPage": current_page, "keysType": keys_type}
+        payload = {
+            "currentPage": current_page,
+            "perPage": per_page,
+            "keysType": keys_type,
+            "search": None,
+        }
         return await self._post("/client-api/Key/GetPagedKeysByKeysType", payload, need_auth=True, expect="json")
 
     async def get_video_area(self):

@@ -9,29 +9,54 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    """Настройка binary sensor для каждой двери."""
     entities = []
     api = hass.data[DOMAIN][config_entry.entry_id][API]
     response = await api.get_paged_keys()
+
+    if not isinstance(response, dict):
+        _LOGGER.warning(
+            "Unexpected Domonap key payload for call sensors: %s",
+            type(response).__name__,
+        )
+        async_add_entities(entities, True)
+        return
+
+    if "error" in response:
+        _LOGGER.error("Failed to load Domonap keys for call sensors: %s", response)
+        async_add_entities(entities, True)
+        return
+
     keys = response.get("results", [])
-    
+    seen_door_ids = set()
+
     for key in keys:
-        key_id = key["id"]
-        door_id = key["doorId"]
-        door_name = key["name"]
-        if key.get("httpVideoUrl") is not None:
-            entities.append(IntercomCallBinarySensor(hass, api, key_id, door_id, door_name, key))
+        key_id = key.get("id")
+        door_id = key.get("doorId")
+        door_name = key.get("name")
+        if not key_id or not door_id or not door_name:
+            _LOGGER.debug("Skipping invalid Domonap call sensor key payload: %s", key)
+            continue
+        if not (key.get("httpVideoUrl") or key.get("webrtcVideoUrl")):
+            _LOGGER.debug(
+                "No camera URL for door %s (%s), skipping call sensor",
+                door_id,
+                door_name,
+            )
+            continue
+        if door_id in seen_door_ids:
+            continue
+        seen_door_ids.add(door_id)
+        entities.append(IntercomCallBinarySensor(hass, api, key_id, door_id, door_name, key))
 
     async_add_entities(entities, True)
 
 
 class IntercomCallBinarySensor(BinarySensorEntity):
-    """Binary sensor для отслеживания входящих звонков по DoorId."""
-    
     _attr_has_entity_name = True
     _attr_icon = "mdi:phone-incoming"
     _attr_device_class = "running"
     _attr_translation_key = "incoming_call"
+    _attr_should_poll = False
 
     def __init__(self, hass: HomeAssistant, api, key_id: str, door_id: str, name: str, key_data: dict):
         self._hass = hass
@@ -50,12 +75,10 @@ class IntercomCallBinarySensor(BinarySensorEntity):
 
     @property
     def is_on(self):
-        """Возвращает True если есть входящий звонок."""
         return self._state
 
     @property
     def extra_state_attributes(self):
-        """Return the state attributes."""
         return self._key_data
 
     @property
@@ -68,13 +91,11 @@ class IntercomCallBinarySensor(BinarySensorEntity):
         }
 
     async def async_added_to_hass(self):
-        """Вызывается когда entity добавлен в Home Assistant."""
         self._listener = self._hass.bus.async_listen(
             EVENT_INCOMING_CALL, self._handle_incoming_call
         )
 
     async def async_will_remove_from_hass(self):
-        """Вызывается когда entity удаляется из Home Assistant."""
         if self._listener:
             self._listener()
         if self._reset_timer:
@@ -83,7 +104,6 @@ class IntercomCallBinarySensor(BinarySensorEntity):
 
     @callback
     def _handle_incoming_call(self, event):
-        """Обработчик события входящего звонка."""
         door_id = event.data.get("DoorId")
         if door_id == self._door_id:
             _LOGGER.debug(
@@ -101,11 +121,9 @@ class IntercomCallBinarySensor(BinarySensorEntity):
 
     @callback
     def _reset_state(self, _now):
-        """Сбрасывает состояние в False через 10 секунд."""
         _LOGGER.debug(
             "Resetting call state for door %s (%s)", self._door_id, self._name
         )
         self._state = False
         self._reset_timer = None
         self.async_write_ha_state()
-

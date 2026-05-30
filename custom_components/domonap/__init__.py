@@ -13,6 +13,8 @@ from .const import (
     DOMAIN,
     API,
     PARAM_ACCESS_TOKEN,
+    PARAM_DEVICE_TOKEN,
+    PARAM_INSTANCE_ID,
     PARAM_REFRESH_TOKEN,
     PARAM_REFRESH_EXPIRATION,
     PARAM_WEBRTC_PROXY_SECRET,
@@ -47,21 +49,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .notify_consumer import IntercomNotifyConsumer
 
     hass.data[DOMAIN].setdefault(entry.entry_id, {})
-    if not entry.data.get(PARAM_WEBRTC_PROXY_SECRET):
-        new_data = dict(entry.data)
+
+    api = IntercomAPI(
+        device_token=entry.data.get(PARAM_DEVICE_TOKEN),
+        instance_id=entry.data.get(PARAM_INSTANCE_ID),
+    )
+
+    new_data = dict(entry.data)
+    if not new_data.get(PARAM_WEBRTC_PROXY_SECRET):
         new_data[PARAM_WEBRTC_PROXY_SECRET] = token_urlsafe(24)
+    if not new_data.get(PARAM_DEVICE_TOKEN):
+        new_data[PARAM_DEVICE_TOKEN] = api.device_token
+    if not new_data.get(PARAM_INSTANCE_ID):
+        new_data[PARAM_INSTANCE_ID] = api.instance_id
+    if new_data != entry.data:
         hass.config_entries.async_update_entry(entry, data=new_data)
 
-    api = IntercomAPI()
     api.set_tokens(
-        entry.data.get(PARAM_ACCESS_TOKEN),
-        entry.data.get(PARAM_REFRESH_TOKEN),
-        entry.data.get(PARAM_REFRESH_EXPIRATION),
+        new_data.get(PARAM_ACCESS_TOKEN),
+        new_data.get(PARAM_REFRESH_TOKEN),
+        new_data.get(PARAM_REFRESH_EXPIRATION),
     )
 
     def update_entry(access_token: str, refresh_token: str, refresh_expiration_date: str) -> None:
         _LOGGER.debug("Updating entry tokens in config_entry data")
         new_data = dict(entry.data)
+        new_data.setdefault(PARAM_DEVICE_TOKEN, api.device_token)
+        new_data.setdefault(PARAM_INSTANCE_ID, api.instance_id)
         new_data.update(
             {
                 PARAM_ACCESS_TOKEN: access_token,
